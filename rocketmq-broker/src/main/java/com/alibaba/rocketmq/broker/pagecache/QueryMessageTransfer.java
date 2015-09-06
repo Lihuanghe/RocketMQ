@@ -94,4 +94,30 @@ public class QueryMessageTransfer extends AbstractReferenceCounted implements Fi
     public long transfered() {
         return transfered;
     }
+
+
+	@Override
+	public FileRegion retain() {
+		super.retain();
+		return this;
+	}
+
+
+	@Override
+	public FileRegion retain(int i) {
+		super.retain(i);
+		return this;
+	}
+
+
+	@Override
+	public FileRegion touch() {
+		return this;
+	}
+
+
+	@Override
+	public FileRegion touch(Object obj) {
+		return this;
+	}
 }

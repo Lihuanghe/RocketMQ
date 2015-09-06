@@ -18,8 +18,8 @@ package com.alibaba.rocketmq.remoting.netty;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerAdapter;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -32,6 +32,7 @@ import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
+import io.netty.util.concurrent.DefaultExecutorServiceFactory;
 
 import java.net.InetSocketAddress;
 import java.util.Timer;
@@ -109,47 +110,17 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                 return new Thread(r, "NettyServerPublicExecutor_" + this.threadIndex.incrementAndGet());
             }
         });
-
-        this.eventLoopGroupBoss = new NioEventLoopGroup(1, new ThreadFactory() {
-            private AtomicInteger threadIndex = new AtomicInteger(0);
-
-
-            @Override
-            public Thread newThread(Runnable r) {
-                return new Thread(r,
-                    String.format("NettyBossSelector_%d", this.threadIndex.incrementAndGet()));
-            }
-        });
-
+        this.eventLoopGroupBoss = new NioEventLoopGroup(1, new DefaultExecutorServiceFactory("NettyBossSelector_"));
+        int threadTotal = nettyServerConfig.getServerSelectorThreads();
         this.eventLoopGroupWorker =
-                new NioEventLoopGroup(nettyServerConfig.getServerSelectorThreads(), new ThreadFactory() {
-                    private AtomicInteger threadIndex = new AtomicInteger(0);
-                    private int threadTotal = nettyServerConfig.getServerSelectorThreads();
-
-
-                    @Override
-                    public Thread newThread(Runnable r) {
-                        return new Thread(r, String.format("NettyServerSelector_%d_%d", threadTotal,
-                            this.threadIndex.incrementAndGet()));
-                    }
-                });
+                new NioEventLoopGroup(nettyServerConfig.getServerSelectorThreads(), new DefaultExecutorServiceFactory(String.format("NettyServerSelector_%d_", threadTotal)));
+       
     }
 
 
     @Override
     public void start() {
-        this.defaultEventExecutorGroup = new DefaultEventExecutorGroup(//
-            nettyServerConfig.getServerWorkerThreads(), //
-            new ThreadFactory() {
-
-                private AtomicInteger threadIndex = new AtomicInteger(0);
-
-
-                @Override
-                public Thread newThread(Runnable r) {
-                    return new Thread(r, "NettyServerWorkerThread_" + this.threadIndex.incrementAndGet());
-                }
-            });
+        this.defaultEventExecutorGroup = new DefaultEventExecutorGroup( nettyServerConfig.getServerWorkerThreads(), new DefaultExecutorServiceFactory("NettyServerWorkerThread_"));
 
         ServerBootstrap childHandler = //
                 this.serverBootstrap.group(this.eventLoopGroupBoss, this.eventLoopGroupWorker)
@@ -183,10 +154,13 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                         }
                     });
 
+        //netty5默认的ALLOCATOR已经是pooledBuffer了，这里不用再判断了.并没有出现堆外内存泄露的情况
+        /*
         if (nettyServerConfig.isServerPooledByteBufAllocatorEnable()) {
             // 这个选项有可能会占用大量堆外内存，暂时不使用。
             childHandler.childOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
         }
+        */
 
         try {
             ChannelFuture sync = this.serverBootstrap.bind().sync();
@@ -306,14 +280,13 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     }
 
     class NettyServerHandler extends SimpleChannelInboundHandler<RemotingCommand> {
-
-        @Override
-        protected void channelRead0(ChannelHandlerContext ctx, RemotingCommand msg) throws Exception {
-            processMessageReceived(ctx, msg);
-        }
+		@Override
+		protected void messageReceived(ChannelHandlerContext ctx, RemotingCommand msg) throws Exception {
+			 processMessageReceived(ctx, msg);
+		}
     }
 
-    class NettyConnetManageHandler extends ChannelDuplexHandler {
+    class NettyConnetManageHandler extends ChannelHandlerAdapter {
         @Override
         public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
             final String remoteAddress = RemotingHelper.parseChannelRemoteAddr(ctx.channel());

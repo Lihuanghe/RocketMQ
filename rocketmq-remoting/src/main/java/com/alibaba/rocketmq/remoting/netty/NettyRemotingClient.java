@@ -17,8 +17,8 @@ package com.alibaba.rocketmq.remoting.netty;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerAdapter;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -32,6 +32,7 @@ import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
+import io.netty.util.concurrent.DefaultExecutorServiceFactory;
 
 import java.net.SocketAddress;
 import java.util.Collections;
@@ -132,15 +133,13 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
     }
 
     class NettyClientHandler extends SimpleChannelInboundHandler<RemotingCommand> {
-
-        @Override
-        protected void channelRead0(ChannelHandlerContext ctx, RemotingCommand msg) throws Exception {
-            processMessageReceived(ctx, msg);
-
-        }
+		@Override
+		protected void messageReceived(ChannelHandlerContext ctx, RemotingCommand msg) throws Exception {
+			processMessageReceived(ctx, msg);
+		}
     }
 
-    class NettyConnetManageHandler extends ChannelDuplexHandler {
+    class NettyConnetManageHandler extends ChannelHandlerAdapter {
         @Override
         public void connect(ChannelHandlerContext ctx, SocketAddress remoteAddress,
                 SocketAddress localAddress, ChannelPromise promise) throws Exception {
@@ -251,33 +250,14 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
             }
         });
 
-        this.eventLoopGroupWorker = new NioEventLoopGroup(1, new ThreadFactory() {
-            private AtomicInteger threadIndex = new AtomicInteger(0);
-
-
-            @Override
-            public Thread newThread(Runnable r) {
-                return new Thread(r, String.format("NettyClientSelector_%d",
-                    this.threadIndex.incrementAndGet()));
-            }
-        });
+        this.eventLoopGroupWorker = new NioEventLoopGroup(1,new DefaultExecutorServiceFactory("NettyClientSelector_"));
     }
 
 
     @Override
     public void start() {
-        this.defaultEventExecutorGroup = new DefaultEventExecutorGroup(//
-            nettyClientConfig.getClientWorkerThreads(), //
-            new ThreadFactory() {
-
-                private AtomicInteger threadIndex = new AtomicInteger(0);
-
-                @Override
-                public Thread newThread(Runnable r) {
-                    return new Thread(r, "NettyClientWorkerThread_" + this.threadIndex.incrementAndGet());
-                }
-            });
-
+    	this.defaultEventExecutorGroup =  new DefaultEventExecutorGroup( nettyClientConfig.getClientWorkerThreads(),new DefaultExecutorServiceFactory("NettyClientWorkerThread_"));
+    	
         Bootstrap handler = this.bootstrap.group(this.eventLoopGroupWorker).channel(NioSocketChannel.class)//
             //
             .option(ChannelOption.TCP_NODELAY, true)
